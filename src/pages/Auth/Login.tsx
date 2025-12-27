@@ -27,8 +27,9 @@ setLoading(true);
 try {
 console.log('[Auth] Attempting login for', email);
 const cred = await signInWithEmailAndPassword(auth, email, password);
-console.log('[Auth] Login success', cred.user?.uid);
-nav('/dashboard');
+    console.log('[Auth] Login success', cred.user?.uid);
+    // Redirect to root, PrivateRoute will handle role-based routing
+    nav('/');
 } catch (err: any) {
 console.error('[Auth] Login error', err);
 const message = err?.code ? formatAuthError(err.code) : (err.message || 'Failed to sign in');

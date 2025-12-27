@@ -299,6 +299,7 @@ export async function markReportAsResolved(
 
 /**
  * Create a notification for a user
+ * Safely handles missing notifications table
  */
 export async function createNotification(userId: string, message: string): Promise<any> {
   try {
@@ -313,6 +314,12 @@ export async function createNotification(userId: string, message: string): Promi
       .single();
 
     if (error) {
+      // Check if the error is due to missing table
+      if (error.message && error.message.includes('notifications')) {
+        console.warn('[Supabase] Notifications table not found, skipping notification creation:', error.message);
+        return null; // Return null to indicate notification was skipped
+      }
+      
       console.error('[Supabase] Error creating notification', error);
       throw new Error(`Failed to create notification: ${error.message}`);
     }
@@ -323,6 +330,16 @@ export async function createNotification(userId: string, message: string): Promi
 
     return data;
   } catch (err) {
+    // Check if the error is due to missing table or schema issues
+    if (err instanceof Error && (
+      err.message.includes('notifications') || 
+      err.message.includes('relation') ||
+      err.message.includes('does not exist')
+    )) {
+      console.warn('[Supabase] Notifications table not available, skipping notification creation:', err.message);
+      return null; // Return null to indicate notification was skipped
+    }
+    
     console.error('[Supabase] Unexpected error in createNotification:', err);
     throw err;
   }

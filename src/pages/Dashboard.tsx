@@ -1,7 +1,38 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import HotspotMap from '../components/HotspotMap';
+import { fetchReportsForDashboard } from '../services/supabaseService';
 
 export default function Dashboard() {
+  const [stats, setStats] = useState({ 
+    total: 0, 
+    pending: 0, 
+    inProgress: 0, 
+    resolved: 0 
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        setLoading(true);
+        const reports = await fetchReportsForDashboard({ isAdmin: true });
+        
+        setStats({
+          total: reports.length,
+          pending: reports.filter(r => r.status === 'Pending').length,
+          inProgress: reports.filter(r => r.status === 'In Progress').length,
+          resolved: reports.filter(r => r.status === 'Resolved').length,
+        });
+      } catch (error) {
+        console.error('Error fetching reports:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchStats();
+  }, []);
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -22,7 +53,9 @@ export default function Dashboard() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">Total Reports</dt>
-                    <dd className="text-lg font-medium text-gray-900">0</dd>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {loading ? '...' : stats.total}
+                    </dd>
                   </dl>
                 </div>
               </div>
@@ -40,7 +73,9 @@ export default function Dashboard() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">Pending</dt>
-                    <dd className="text-lg font-medium text-gray-900">0</dd>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {loading ? '...' : stats.pending}
+                    </dd>
                   </dl>
                 </div>
               </div>
@@ -58,7 +93,9 @@ export default function Dashboard() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">In Progress</dt>
-                    <dd className="text-lg font-medium text-gray-900">0</dd>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {loading ? '...' : stats.inProgress}
+                    </dd>
                   </dl>
                 </div>
               </div>
@@ -76,7 +113,9 @@ export default function Dashboard() {
                 <div className="ml-5 w-0 flex-1">
                   <dl>
                     <dt className="text-sm font-medium text-gray-500 truncate">Resolved</dt>
-                    <dd className="text-lg font-medium text-gray-900">0</dd>
+                    <dd className="text-lg font-medium text-gray-900">
+                      {loading ? '...' : stats.resolved}
+                    </dd>
                   </dl>
                 </div>
               </div>

@@ -1,297 +1,166 @@
-import React, { useState, useRef } from 'react';
-import type { Report } from '../types';
-import { predictIssue, isResolvedClass, getClassDescription } from '../services/api';
-import { uploadResolvedPhoto, resolveReportWithML, createNotification } from '../services/supabaseService';
-import { useToast } from './Toast';
+import React, { useState } from 'react';
+import { uploadResolvedPhoto } from '../services/supabaseService';
 
-type Props = {
-  report: Report;
+type ImageUploadModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSubmit: (imageUrl: string) => Promise<void>;
+  loading?: boolean;
+  reportId?: string;
 };
 
-export default function ImageUploadModal({ report, isOpen, onClose, onSuccess }: Props) {
-  const { showToast } = useToast();
+export default function ImageUploadModal({
+  isOpen,
+  onClose,
+  onSubmit,
+  loading = false,
+  reportId = 'temp',
+}: ImageUploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false);
-  const [prediction, setPrediction] = useState<{ predicted_class: string; confidence: number } | null>(null);
-  const [uploadedImageUrl, setUploadedImageUrl] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [preview, setPreview] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  if (!isOpen) return null;
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
+      // Validate file type
+      if (!selectedFile.type.startsWith('image/')) {
+        setError('Please select an image file');
+        return;
+      }
+      // Validate file size (max 10MB)
+      if (selectedFile.size > 10 * 1024 * 1024) {
+        setError('File size must be less than 10MB');
+        return;
+      }
       setFile(selectedFile);
-      const url = URL.createObjectURL(selectedFile);
-      setPreviewUrl(url);
-      setPrediction(null); // Reset prediction when new file is selected
-      // Upload immediately and store Supabase URL so we don't upload twice
-      setIsUploading(true);
-      try {
-        const publicUrl = await uploadResolvedPhoto(report.id, selectedFile);
-        setUploadedImageUrl(publicUrl);
-      } catch (err: any) {
-        console.error('[ImageUploadModal] Upload failed:', err);
-        showToast(`Failed to upload image: ${err.message}`, 'error');
-        setFile(null);
-        setPreviewUrl(null);
-        setUploadedImageUrl(null);
-        if (fileInputRef.current) fileInputRef.current.value = '';
-      } finally {
-        setIsUploading(false);
-      }
+      setError(null);
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPreview(reader.result as string);
+      };
+      reader.readAsDataURL(selectedFile);
     }
   };
 
-  const handleDrop = async (e: React.DragEvent<HTMLDivElement>) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile && droppedFile.type.startsWith('image/')) {
-      setFile(droppedFile);
-      const url = URL.createObjectURL(droppedFile);
-      setPreviewUrl(url);
-      setPrediction(null);
-      // Upload immediately and store Supabase URL so we don't upload twice
-      setIsUploading(true);
-      try {
-        const publicUrl = await uploadResolvedPhoto(report.id, droppedFile);
-        setUploadedImageUrl(publicUrl);
-      } catch (err: any) {
-        console.error('[ImageUploadModal] Upload failed (drop):', err);
-        showToast(`Failed to upload image: ${err.message}`, 'error');
-        setFile(null);
-        setPreviewUrl(null);
-        setUploadedImageUrl(null);
-      } finally {
-        setIsUploading(false);
-      }
-    }
-  };
-
-  const handleDragOver = (e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  };
-
-  const handlePredict = async () => {
     if (!file) {
-      showToast('Please upload an image before analysis.', 'warning');
+      setError('Please select an image file');
       return;
     }
 
-    setIsUploading(true);
+    setUploading(true);
+    setError(null);
+
     try {
-      const result = await predictIssue(file);
-      setPrediction(result);
-    } catch (error: any) {
-      console.error('[ImageUploadModal] Prediction failed:', error);
-      showToast(`Failed to analyze image: ${error.message}`, 'error');
+      const imageUrl = await uploadResolvedPhoto(reportId, file);
+      await onSubmit(imageUrl);
+      // Reset form
+      setFile(null);
+      setPreview(null);
+    } catch (err) {
+      console.error('[ImageUploadModal] Upload error:', err);
+      setError(err instanceof Error ? err.message : 'Failed to upload image');
     } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleResolve = async () => {
-    if (!uploadedImageUrl) {
-      showToast('Please upload an image before resolving.', 'warning');
-      return;
-    }
-    if (!prediction) {
-      showToast('Please run ML analysis before resolving.', 'warning');
-      return;
-    }
-
-    setIsUploading(true);
-    try {
-      // Resolve report using ML analysis (enforces ML pipeline)
-      await resolveReportWithML(
-        report.id,
-        prediction.predicted_class,
-        uploadedImageUrl
-      );
-
-      // Create notification for the user
-      const location = report.location ? 
-        `${report.location.lat.toFixed(4)}, ${report.location.lng.toFixed(4)}` : 
-        'your location';
-      
-      const message = `✅ Your report at ${location} has been resolved as ${getClassDescription(prediction.predicted_class)}.`;
-      await createNotification(report.userId, message);
-
-      showToast('Report resolved successfully!', 'success');
-      onSuccess();
-      onClose();
-    } catch (error: any) {
-      console.error('[ImageUploadModal] Resolution failed:', error);
-      showToast(`Failed to resolve report: ${error.message}`, 'error');
-    } finally {
-      setIsUploading(false);
+      setUploading(false);
     }
   };
 
   const handleClose = () => {
-    setFile(null);
-    setPreviewUrl(null);
-    setPrediction(null);
-    onClose();
+    if (!loading && !uploading) {
+      setFile(null);
+      setPreview(null);
+      setError(null);
+      onClose();
+    }
   };
 
-  if (!isOpen) return null;
-
-  const canResolve = prediction && isResolvedClass(prediction.predicted_class);
-  const isIssue = prediction && !isResolvedClass(prediction.predicted_class);
-
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-gray-900">Resolve Report with Image</h2>
-            <button
-              onClick={handleClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
+        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={handleClose} />
 
-          <div className="space-y-4">
-            {/* Report Info */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-              <h3 className="font-medium text-gray-900 mb-2">Report Details</h3>
-              <p className="text-sm text-gray-600">
-                <strong>Title:</strong> {report.title || report.description || 'No title'}
-              </p>
-              {report.location && (
-                <p className="text-sm text-gray-600">
-                  <strong>Location:</strong> {report.location.lat.toFixed(4)}, {report.location.lng.toFixed(4)}
-                </p>
-              )}
-            </div>
-
-            {/* File Upload Area */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Upload Resolution Image
-              </label>
-              
-              {!file ? (
-                <div
-                  onDrop={handleDrop}
-                  onDragOver={handleDragOver}
-                  className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-gray-400 transition-colors cursor-pointer"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <svg className="mx-auto h-12 w-12 text-gray-400 mb-4" stroke="currentColor" fill="none" viewBox="0 0 48 48">
-                    <path d="M28 8H12a4 4 0 00-4 4v20m32-12v8m0 0v8a4 4 0 01-4 4H12a4 4 0 01-4-4v-4m32-4l-3.172-3.172a4 4 0 00-5.656 0L28 28M8 32l9.172-9.172a4 4 0 015.656 0L28 28m0 0l4 4m4-24h8m-4-4v8m-12 4h.02" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                  <p className="text-gray-600 mb-2">Click to upload or drag and drop</p>
-                  <p className="text-sm text-gray-500">PNG, JPG, GIF up to 10MB</p>
-                </div>
-              ) : (
-                <div className="space-y-4">
-                  {/* Image Preview */}
-                  <div className="relative">
-                    <img
-                      src={previewUrl!}
-                      alt="Upload preview"
-                      className="w-full h-48 object-cover rounded-lg border border-gray-200"
+        <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
+          <form onSubmit={handleSubmit}>
+            <div className="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+              <div className="sm:flex sm:items-start">
+                <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-green-100 sm:mx-0 sm:h-10 sm:w-10">
+                  <svg
+                    className="h-6 w-6 text-green-600"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
                     />
-                    <button
-                      onClick={() => {
-                        setFile(null);
-                        setPreviewUrl(null);
-                        setPrediction(null);
-                        setUploadedImageUrl(null);
-                      }}
-                      className="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600 transition-colors"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                      </svg>
-                    </button>
-                  </div>
-
-                  {/* Predict Button */}
-                  {!prediction && (
-                    <button
-                      onClick={handlePredict}
-                      disabled={isUploading}
-                      className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {isUploading ? 'Analyzing Image...' : 'Analyze Image with ML'}
-                    </button>
-                  )}
+                  </svg>
                 </div>
-              )}
-
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-              />
-            </div>
-
-            {/* Prediction Results */}
-            {prediction && (
-              <div className={`p-4 rounded-lg border-2 ${
-                canResolve ? 'bg-green-50 border-green-200' : 
-                isIssue ? 'bg-red-50 border-red-200' : 
-                'bg-gray-50 border-gray-200'
-              }`}>
-                <h3 className="font-medium mb-2">ML Analysis Result</h3>
-                <div className="space-y-2">
-                  <p className="text-sm">
-                    <strong>Predicted Class:</strong> {getClassDescription(prediction.predicted_class)}
-                  </p>
-                  <p className="text-sm">
-                    <strong>Confidence:</strong> {(prediction.confidence * 100).toFixed(1)}%
-                  </p>
-                </div>
-
-                {canResolve && (
-                  <div className="mt-4 p-3 bg-green-100 border border-green-200 rounded-md">
-                    <p className="text-sm text-green-800">
-                      ✅ This image shows the issue has been resolved. You can proceed to mark the report as resolved.
+                <div className="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                  <h3 className="text-lg leading-6 font-medium text-gray-900 mb-4">
+                    Complete Report
+                  </h3>
+                  <div className="mt-2">
+                    <label
+                      htmlFor="image-upload"
+                      className="block text-sm font-medium text-gray-700 mb-2"
+                    >
+                      Upload Completion Photo
+                    </label>
+                    <input
+                      type="file"
+                      id="image-upload"
+                      accept="image/*"
+                      onChange={handleFileChange}
+                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                      disabled={loading || uploading}
+                      required
+                    />
+                    {preview && (
+                      <div className="mt-4">
+                        <img
+                          src={preview}
+                          alt="Preview"
+                          className="max-w-full h-48 object-contain rounded-md border border-gray-300"
+                        />
+                      </div>
+                    )}
+                    {error && (
+                      <p className="mt-2 text-sm text-red-600">{error}</p>
+                    )}
+                    <p className="mt-2 text-sm text-gray-500">
+                      Upload a photo showing the completed work
                     </p>
                   </div>
-                )}
-
-                {isIssue && (
-                  <div className="mt-4 p-3 bg-red-100 border border-red-200 rounded-md">
-                    <p className="text-sm text-red-800">
-                      ❌ The uploaded image still shows an issue ({getClassDescription(prediction.predicted_class)}). Please upload a resolved image.
-                    </p>
-                  </div>
-                )}
+                </div>
               </div>
-            )}
-
-            {/* Action Buttons */}
-            <div className="flex justify-end space-x-3 pt-4">
+            </div>
+            <div className="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
               <button
+                type="submit"
+                disabled={loading || uploading || !file}
+                className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploading ? 'Uploading...' : loading ? 'Submitting...' : 'Complete Report'}
+              </button>
+              <button
+                type="button"
                 onClick={handleClose}
-                className="px-4 py-2 text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300 transition-colors"
+                disabled={loading || uploading}
+                className="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
-              
-              {canResolve && (
-                <button
-                  onClick={handleResolve}
-                  disabled={isUploading}
-                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                >
-                  {isUploading ? 'Resolving...' : 'Mark as Resolved'}
-                </button>
-              )}
             </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>

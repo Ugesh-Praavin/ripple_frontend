@@ -281,3 +281,92 @@ FROM user_profiles up
 LEFT JOIN reports r ON r.user_id = up.id
 LEFT JOIN likes l ON l.user_id = up.id
 LEFT JOIN comments c ON c.user_id = up.id;
+
+
+
+CREATE TABLE IF NOT EXISTS public.ml_verification (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  issue_id uuid REFERENCES issues(id) ON DELETE CASCADE,
+  predicted_class TEXT,
+  confidence FLOAT,
+  verified BOOLEAN,
+  verified_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS public.users (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  email TEXT UNIQUE NOT NULL,
+  role TEXT CHECK (role IN ('ADMIN', 'SUPERVISOR')) NOT NULL,
+  block_id uuid,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.blocks (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  name TEXT NOT NULL,
+  created_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.issues (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  report_id uuid REFERENCES reports(id) ON DELETE SET NULL,
+  issue_type TEXT NOT NULL,
+  block_id uuid REFERENCES blocks(id),
+  status TEXT CHECK (
+    status IN (
+      'REPORTED',
+      'IN_PROGRESS',
+      'ASSIGNED_TO_SUPERVISOR',
+      'ASSIGNED_TO_WORKER',
+      'WORK_COMPLETED',
+      'MANUAL_REVIEW',
+      'RESOLVED'
+    )
+  ) NOT NULL,
+  priority INT DEFAULT 1,
+  estimated_resolution_time INTERVAL,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS public.issue_assignments (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  issue_id uuid REFERENCES issues(id) ON DELETE CASCADE,
+  supervisor_id uuid REFERENCES users(id),
+  worker_name TEXT,
+  assigned_at TIMESTAMP,
+  completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS public.issue_images (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  issue_id uuid REFERENCES issues(id) ON DELETE CASCADE,
+  image_url TEXT NOT NULL,
+  type TEXT CHECK (type IN ('REPORTED', 'COMPLETED')),
+  uploaded_at TIMESTAMP DEFAULT now()
+);
+
+
+ALTER TABLE reports
+ADD COLUMN IF NOT EXISTS priority INT DEFAULT 1,
+ADD COLUMN IF NOT EXISTS estimated_resolution_time INTERVAL,
+ADD COLUMN IF NOT EXISTS supervisor_id UUID,
+ADD COLUMN IF NOT EXISTS worker_name TEXT;
+
+CREATE TABLE IF NOT EXISTS report_assignments (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  report_id UUID REFERENCES reports(id) ON DELETE CASCADE,
+  supervisor_email TEXT,
+  worker_name TEXT,
+  assigned_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS ml_verification (
+  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  report_id UUID REFERENCES reports(id) ON DELETE CASCADE,
+  predicted_class TEXT,
+  confidence FLOAT,
+  verified BOOLEAN,
+  verified_at TIMESTAMP
+);

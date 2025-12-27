@@ -1,35 +1,37 @@
 import React from 'react';
-import Reports from './pages/Reports';
-import PrivateRoute from './components/PrivateRoute';
-import AppLayout from './components/AppLayout';
-import Dashboard from './pages/Dashboard';
-import Settings from './pages/Settings';
 import { Routes, Route } from 'react-router-dom';
-
+import PrivateRoute from './components/PrivateRoute';
+import AdminDashboard from './pages/AdminDashboard';
+import SupervisorDashboard from './pages/SupervisorDashboard';
 
 export default function App() {
-return (
-<Routes>
-<Route path="/" element={
-<PrivateRoute>
-<AppLayout><Dashboard /></AppLayout>
-</PrivateRoute>
-} />
-<Route path="/dashboard" element={
-<PrivateRoute>
-<AppLayout><Dashboard /></AppLayout>
-</PrivateRoute>
-} />
-<Route path="/reports" element={
-<PrivateRoute>
-<AppLayout><Reports /></AppLayout>
-</PrivateRoute>
-} />
-<Route path="/settings" element={
-<PrivateRoute>
-<AppLayout><Settings /></AppLayout>
-</PrivateRoute>
-} />
-</Routes>
-);
+  return (
+    <Routes>
+      <Route
+        path="/admin"
+        element={
+          <PrivateRoute requiredRole="ADMIN">
+            <AdminDashboard />
+          </PrivateRoute>
+        }
+      />
+      <Route
+        path="/supervisor"
+        element={
+          <PrivateRoute requiredRole="SUPERVISOR">
+            <SupervisorDashboard />
+          </PrivateRoute>
+        }
+      />
+      {/* Redirect root to appropriate dashboard */}
+      <Route
+        path="/"
+        element={
+          <PrivateRoute>
+            <div>Redirecting...</div>
+          </PrivateRoute>
+        }
+      />
+    </Routes>
+  );
 }
