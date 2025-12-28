@@ -155,25 +155,56 @@ export const supervisorAPI = {
     reportId: string,
     data: CompleteReportRequest
   ): Promise<CompleteReportResponse> => {
-    console.log("[API] completeReport request:", {
+    // TEMP: Comprehensive request logging
+    console.log("[API] TEMP - completeReport request details:", {
       reportId,
       payload: data,
       payloadType: typeof data,
-      isString: typeof data === "string",
+      payloadKeys: Object.keys(data),
+      image_url: data.image_url,
+      image_url_type: typeof data.image_url,
+      image_url_length: data.image_url?.length,
+      baseURL: BASE_URL,
+      endpoint: `/supervisor/report/${reportId}/complete`,
+      fullURL: `${BASE_URL}/supervisor/report/${reportId}/complete`,
     });
 
-    const response = await api.patch<CompleteReportResponse>(
-      `/supervisor/report/${reportId}/complete`,
-      data, // This will be serialized as JSON by axios
-      {
-        headers: {
-          "Content-Type": "application/json", // Explicitly set JSON header
-        },
-      }
-    );
+    try {
+      const response = await api.patch<CompleteReportResponse>(
+        `/supervisor/report/${reportId}/complete`,
+        data, // This will be serialized as JSON by axios
+        {
+          headers: {
+            "Content-Type": "application/json", // Explicitly set JSON header
+          },
+        }
+      );
 
-    console.log("[API] completeReport response:", response.data);
-    return response.data;
+      console.log("[API] TEMP - completeReport response:", response.data);
+      console.log("[API] TEMP - Response status:", response.status);
+      console.log("[API] TEMP - Response headers:", response.headers);
+      return response.data;
+    } catch (error) {
+      // TEMP: Enhanced error logging
+      console.error("[API] TEMP - completeReport error:", error);
+      
+      if (error && typeof error === "object" && "isAxiosError" in error) {
+        const axiosError = error as AxiosError;
+        console.error("[API] TEMP - Axios error details:", {
+          status: axiosError.response?.status,
+          statusText: axiosError.response?.statusText,
+          responseData: axiosError.response?.data,
+          responseHeaders: axiosError.response?.headers,
+          requestURL: axiosError.config?.url,
+          requestMethod: axiosError.config?.method,
+          requestData: axiosError.config?.data,
+          requestHeaders: axiosError.config?.headers,
+        });
+      }
+      
+      // Re-throw to let caller handle
+      throw error;
+    }
   },
 };
 

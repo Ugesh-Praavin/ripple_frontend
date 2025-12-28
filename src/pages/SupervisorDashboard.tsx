@@ -5,7 +5,8 @@ import AssignWorkerDropdown from "../components/AssignWorkerDropdown";
 import ImageUploadModal from "../components/ImageUploadModal";
 import { useToast } from "../components/Toast";
 import { uploadResolvedPhoto } from "../services/supabaseService";
-import { api } from "../services/api";
+
+import type { AxiosError } from "axios";
 
 export default function SupervisorDashboard() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -81,50 +82,86 @@ export default function SupervisorDashboard() {
       return;
     }
 
+    // TEMP: Log selected reportId
+    console.log(
+      "[SupervisorDashboard] TEMP - Selected reportId:",
+      selectedReportId
+    );
+    console.log("[SupervisorDashboard] TEMP - File details:", {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    });
+
     try {
       setActionLoading(selectedReportId);
 
-      // Step 1: Upload image to Supabase
-      console.log("[SupervisorDashboard] Starting upload to Supabase...", {
-        reportId: selectedReportId,
-        fileName: file.name,
-        fileSize: file.size,
-      });
-
-      const publicUrl = await uploadResolvedPhoto(selectedReportId, file);
-
-      // Step 2: Validate
-      if (!publicUrl || typeof publicUrl !== "string") {
-        throw new Error("Image upload failed");
-      }
-
-      console.log("[SupervisorDashboard] Resolved image URL:", publicUrl);
-
-      // Step 3: Call backend with JSON ONLY
-      console.log("[SupervisorDashboard] Calling backend with payload:", {
-        reportId: selectedReportId,
-        image_url: publicUrl,
-      });
-
-      const response = await api.patch(
-        `/supervisor/report/${selectedReportId}/complete`,
+      // Step 1: Upload image to Supabase Storage (NOT database)
+      console.log(
+        "[SupervisorDashboard] Starting upload to Supabase Storage...",
         {
-          image_url: publicUrl,
-        },
-        {
-          headers: {
-            "Content-Type": "application/json",
-          },
+          reportId: selectedReportId,
+          fileName: file.name,
+          fileSize: file.size,
+          fileType: file.type,
         }
       );
 
-      console.log("[SupervisorDashboard] Backend response:", response.data);
+      const publicUrl = await uploadResolvedPhoto(selectedReportId, file);
 
-      const responseData = response.data as {
-        status: string;
-        requires_manual_review?: boolean;
+      // Step 2: Validate public URL
+      if (!publicUrl || typeof publicUrl !== "string") {
+        throw new Error("Image upload failed - no public URL returned");
+      }
+
+      if (!publicUrl.startsWith("http")) {
+        throw new Error(`Invalid public URL format: ${publicUrl}`);
+      }
+
+      // TEMP: Log generated image URL
+      console.log(
+        "[SupervisorDashboard] TEMP - Generated image URL:",
+        publicUrl
+      );
+      console.log("[SupervisorDashboard] TEMP - URL type:", typeof publicUrl);
+      console.log("[SupervisorDashboard] TEMP - URL length:", publicUrl.length);
+
+      // Step 3: Prepare request payload
+      const requestPayload = {
+        image_url: publicUrl,
       };
 
+      // TEMP: Log request payload
+      console.log(
+        "[SupervisorDashboard] TEMP - Request payload:",
+        requestPayload
+      );
+      console.log(
+        "[SupervisorDashboard] TEMP - Payload JSON stringified:",
+        JSON.stringify(requestPayload)
+      );
+      console.log(
+        "[SupervisorDashboard] TEMP - API base URL:",
+        process.env.REACT_APP_API_BASE_URL || "http://localhost:3000"
+      );
+      console.log(
+        "[SupervisorDashboard] TEMP - Endpoint:",
+        `/supervisor/report/${selectedReportId}/complete`
+      );
+
+      // Step 4: Call backend API using supervisorAPI.completeReport
+      // This ensures proper error handling and JSON serialization
+      const responseData = await supervisorAPI.completeReport(
+        selectedReportId,
+        requestPayload
+      );
+
+      console.log(
+        "[SupervisorDashboard] TEMP - Backend response received:",
+        responseData
+      );
+
+      // Step 5: Handle response
       if (responseData.status === "Resolved") {
         // Remove from list
         setReports((prev) => prev.filter((r) => r.id !== selectedReportId));
@@ -158,8 +195,57 @@ export default function SupervisorDashboard() {
       setIsImageModalOpen(false);
       setSelectedReportId(null);
     } catch (error) {
-      console.error("[SupervisorDashboard] Failed to complete report:", error);
-      showToast("Failed to complete report", "error");
+      // TEMP: Comprehensive error logging
+      console.error("[SupervisorDashboard] TEMP - Error occurred:", error);
+
+      if (error && typeof error === "object" && "isAxiosError" in error) {
+        const axiosError = error as AxiosError;
+        console.error("[SupervisorDashboard] TEMP - Is Axios Error: true");
+        console.error(
+          "[SupervisorDashboard] TEMP - Error status:",
+          axiosError.response?.status
+        );
+        console.error(
+          "[SupervisorDashboard] TEMP - Error status text:",
+          axiosError.response?.statusText
+        );
+        console.error(
+          "[SupervisorDashboard] TEMP - Error response headers:",
+          axiosError.response?.headers
+        );
+        console.error(
+          "[SupervisorDashboard] TEMP - Error response data:",
+          axiosError.response?.data
+        );
+        console.error(
+          "[SupervisorDashboard] TEMP - Error response data (stringified):",
+          JSON.stringify(axiosError.response?.data)
+        );
+        console.error("[SupervisorDashboard] TEMP - Error request config:", {
+          url: axiosError.config?.url,
+          method: axiosError.config?.method,
+          baseURL: axiosError.config?.baseURL,
+          headers: axiosError.config?.headers,
+          data: axiosError.config?.data,
+        });
+
+        const errorMessage = axiosError.response?.data
+          ? typeof axiosError.response.data === "string"
+            ? axiosError.response.data
+            : JSON.stringify(axiosError.response.data)
+          : axiosError.message || "Unknown error";
+
+        showToast(`Failed to complete report: ${errorMessage}`, "error");
+      } else {
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        console.error(
+          "[SupervisorDashboard] TEMP - Non-Axios error:",
+          errorMessage
+        );
+        showToast(`Failed to complete report: ${errorMessage}`, "error");
+      }
+
       // Refetch on error
       fetchReports();
     } finally {
