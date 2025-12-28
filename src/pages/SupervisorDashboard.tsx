@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
-import { supervisorAPI, type Report } from '../services/api';
-import ReportCard from '../components/ReportCard';
-import AssignWorkerDropdown from '../components/AssignWorkerDropdown';
-import ImageUploadModal from '../components/ImageUploadModal';
-import { useToast } from '../components/Toast';
+import React, { useState, useEffect } from "react";
+import { supervisorAPI, type Report } from "../services/api";
+import ReportCard from "../components/ReportCard";
+import AssignWorkerDropdown from "../components/AssignWorkerDropdown";
+import ImageUploadModal from "../components/ImageUploadModal";
+import { useToast } from "../components/Toast";
+import { uploadResolvedPhoto } from "../services/supabaseService";
+import { api } from "../services/api";
 
 export default function SupervisorDashboard() {
   const [reports, setReports] = useState<Report[]>([]);
@@ -22,7 +24,7 @@ export default function SupervisorDashboard() {
       setLoading(true);
       const data = await supervisorAPI.getReports();
       // Filter out resolved reports and sort by created_at DESC
-      const filtered = data.filter((r) => r.status !== 'Resolved');
+      const filtered = data.filter((r) => r.status !== "Resolved");
       const sorted = [...filtered].sort((a, b) => {
         const dateA = new Date(a.created_at).getTime();
         const dateB = new Date(b.created_at).getTime();
@@ -30,31 +32,38 @@ export default function SupervisorDashboard() {
       });
       setReports(sorted);
     } catch (error) {
-      console.error('[SupervisorDashboard] Failed to fetch reports:', error);
-      showToast('Failed to load reports', 'error');
+      console.error("[SupervisorDashboard] Failed to fetch reports:", error);
+      showToast("Failed to load reports", "error");
     } finally {
       setLoading(false);
     }
   };
 
+  // Inside handleAssignWorker
   const handleAssignWorker = async (reportId: string, workerName: string) => {
     try {
       setActionLoading(reportId);
-      await supervisorAPI.assignWorker(reportId, { worker_name: workerName });
+      // 1. Call API
+      const updatedReport = await supervisorAPI.assignWorker(reportId, {
+        worker_name: workerName,
+      });
 
-      // Optimistic update
+      // 2. Update Local State
       setReports((prev) =>
         prev.map((r) =>
-          r.id === reportId ? { ...r, worker_name: workerName } : r
+          r.id === reportId
+            ? {
+                ...r,
+                worker_name: updatedReport.worker_name || workerName,
+                status: "In Progress", // <--- Manually update status locally to match backend
+              }
+            : r
         )
       );
 
-      showToast(`Worker ${workerName} assigned successfully`, 'success');
+      showToast(`Worker ${workerName} assigned successfully`, "success");
     } catch (error) {
-      console.error('[SupervisorDashboard] Failed to assign worker:', error);
-      showToast('Failed to assign worker', 'error');
-      // Refetch on error
-      fetchReports();
+      // ... existing error handling
     } finally {
       setActionLoading(null);
     }
@@ -65,42 +74,92 @@ export default function SupervisorDashboard() {
     setIsImageModalOpen(true);
   };
 
-  const handleImageSubmit = async (imageUrl: string) => {
-    if (!selectedReportId) return;
+  const handleImageSubmit = async (file: File) => {
+    if (!selectedReportId) {
+      console.error("[SupervisorDashboard] No report ID selected");
+      showToast("No report selected", "error");
+      return;
+    }
 
     try {
       setActionLoading(selectedReportId);
-      const response = await supervisorAPI.completeReport(selectedReportId, {
-        image_url: imageUrl,
+
+      // Step 1: Upload image to Supabase
+      console.log("[SupervisorDashboard] Starting upload to Supabase...", {
+        reportId: selectedReportId,
+        fileName: file.name,
+        fileSize: file.size,
       });
 
-      if (response.status === 'Resolved') {
+      const publicUrl = await uploadResolvedPhoto(selectedReportId, file);
+
+      // Step 2: Validate
+      if (!publicUrl || typeof publicUrl !== "string") {
+        throw new Error("Image upload failed");
+      }
+
+      console.log("[SupervisorDashboard] Resolved image URL:", publicUrl);
+
+      // Step 3: Call backend with JSON ONLY
+      console.log("[SupervisorDashboard] Calling backend with payload:", {
+        reportId: selectedReportId,
+        image_url: publicUrl,
+      });
+
+      const response = await api.patch(
+        `/supervisor/report/${selectedReportId}/complete`,
+        {
+          image_url: publicUrl,
+        },
+        {
+          headers: {
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      console.log("[SupervisorDashboard] Backend response:", response.data);
+
+      const responseData = response.data as {
+        status: string;
+        requires_manual_review?: boolean;
+      };
+
+      if (responseData.status === "Resolved") {
         // Remove from list
         setReports((prev) => prev.filter((r) => r.id !== selectedReportId));
-        showToast('Report completed successfully', 'success');
-      } else if (response.requires_manual_review) {
-        // Update status but keep in list with warning
+        showToast("Report completed successfully", "success");
+      } else if (responseData.requires_manual_review) {
+        // Update status but keep in list with warning badge
         setReports((prev) =>
           prev.map((r) =>
-            r.id === selectedReportId ? { ...r, status: 'Pending' as const } : r
+            r.id === selectedReportId
+              ? {
+                  ...r,
+                  status: "Pending" as const,
+                  requires_manual_review: true,
+                }
+              : r
           )
         );
-        showToast('Report requires manual review', 'warning');
+        showToast("Report requires manual review", "warning");
       } else {
         // Update status
         setReports((prev) =>
           prev.map((r) =>
-            r.id === selectedReportId ? { ...r, status: response.status as any } : r
+            r.id === selectedReportId
+              ? { ...r, status: responseData.status as any }
+              : r
           )
         );
-        showToast('Report updated', 'success');
+        showToast("Report updated", "success");
       }
 
       setIsImageModalOpen(false);
       setSelectedReportId(null);
     } catch (error) {
-      console.error('[SupervisorDashboard] Failed to complete report:', error);
-      showToast('Failed to complete report', 'error');
+      console.error("[SupervisorDashboard] Failed to complete report:", error);
+      showToast("Failed to complete report", "error");
       // Refetch on error
       fetchReports();
     } finally {
@@ -112,7 +171,9 @@ export default function SupervisorDashboard() {
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Supervisor Dashboard</h1>
+          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+            Supervisor Dashboard
+          </h1>
           <p className="text-gray-600">Manage assigned reports and workers</p>
         </div>
 
@@ -138,7 +199,9 @@ export default function SupervisorDashboard() {
                 d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
               />
             </svg>
-            <h3 className="mt-2 text-sm font-medium text-gray-900">No reports</h3>
+            <h3 className="mt-2 text-sm font-medium text-gray-900">
+              No reports
+            </h3>
             <p className="mt-1 text-sm text-gray-500">
               No assigned or unassigned reports available.
             </p>
@@ -146,15 +209,19 @@ export default function SupervisorDashboard() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {reports.map((report) => (
-              <div key={report.id}>
+              <div key={report.id} className="space-y-4">
                 <ReportCard
                   report={report}
                   onComplete={handleComplete}
                   isSupervisor={true}
                   loading={actionLoading === report.id}
                 />
+                {/* Worker Assignment - Show when worker_name is null */}
                 {!report.worker_name && (
-                  <div className="mt-4 bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                  <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Assign Worker
+                    </label>
                     <AssignWorkerDropdown
                       reportId={report.id}
                       onAssign={handleAssignWorker}
@@ -181,4 +248,3 @@ export default function SupervisorDashboard() {
     </div>
   );
 }
-

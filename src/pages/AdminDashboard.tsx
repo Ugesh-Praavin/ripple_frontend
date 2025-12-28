@@ -45,23 +45,30 @@ export default function AdminDashboard() {
 
     try {
       setActionLoading(selectedReportId);
-      await adminAPI.startWork(selectedReportId, { estimated_time: estimatedTime });
-      
-      // Optimistic update
+      const updatedReport = await adminAPI.startWork(selectedReportId, {
+        estimated_time: estimatedTime,
+      });
+
+      // Update with response from backend (includes supervisor_id if assigned)
       setReports((prev) =>
         prev.map((r) =>
           r.id === selectedReportId
-            ? { ...r, status: 'In Progress' as const, estimated_time: estimatedTime }
+            ? {
+                ...r,
+                status: updatedReport.status,
+                estimated_time: updatedReport.estimated_time || estimatedTime,
+                supervisor_id: updatedReport.supervisor_id || r.supervisor_id,
+              }
             : r
         )
       );
 
-      showToast('Work started successfully', 'success');
+      showToast("Work started successfully", "success");
       setIsModalOpen(false);
       setSelectedReportId(null);
     } catch (error) {
-      console.error('[AdminDashboard] Failed to start work:', error);
-      showToast('Failed to start work', 'error');
+      console.error("[AdminDashboard] Failed to start work:", error);
+      showToast("Failed to start work", "error");
       // Refetch on error
       fetchReports();
     } finally {

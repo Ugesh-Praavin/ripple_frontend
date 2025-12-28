@@ -2,25 +2,49 @@ import { supabase } from '../supabase';
 
 
 /**
-* Upload a resolved photo file to Supabase storage and return public URL
-*/
-export async function uploadResolvedPhoto(reportId: string, file: File): Promise<string> {
-// create a unique path
-const path = `resolved/${reportId}_${Date.now()}_${file.name}`;
-const bucket = 'reports'; // use the same bucket as defined in schema
+ * Upload a resolved photo file to Supabase storage and return public URL
+ */
+export async function uploadResolvedPhoto(
+  reportId: string,
+  file: File
+): Promise<string> {
+  // Create a unique path
+  const path = `resolved/${reportId}_${Date.now()}_${file.name}`;
+  const bucket = "reports"; // use the same bucket as defined in schema
 
+  console.log("[Supabase] Uploading file:", {
+    reportId,
+    path,
+    fileName: file.name,
+    fileSize: file.size,
+    fileType: file.type,
+  });
 
-const { error } = await supabase.storage
-.from(bucket)
-.upload(path, file, { cacheControl: '3600', upsert: false });
+  const { error: uploadError, data: uploadData } = await supabase.storage
+    .from(bucket)
+    .upload(path, file, { cacheControl: "3600", upsert: false });
 
+  if (uploadError) {
+    console.error("[Supabase] Upload error:", uploadError);
+    throw new Error(`Failed to upload to Supabase: ${uploadError.message}`);
+  }
 
-if (error) throw error;
+  console.log("[Supabase] Upload successful:", uploadData);
 
+  // Get public URL
+  const { data: publicData } = supabase.storage
+    .from(bucket)
+    .getPublicUrl(path);
 
-const { data: publicData } = supabase.storage.from(bucket).getPublicUrl(path);
-const publicUrl = publicData?.publicUrl ?? '';
-return publicUrl;
+  const publicUrl = publicData?.publicUrl ?? "";
+
+  if (!publicUrl || publicUrl.trim() === "") {
+    throw new Error("Failed to get public URL from Supabase");
+  }
+
+  console.log("[Supabase] Public URL generated:", publicUrl);
+
+  return publicUrl;
 }
 
 type SupabaseReportRow = {

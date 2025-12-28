@@ -1,8 +1,20 @@
-import React from 'react';
-import { Routes, Route } from 'react-router-dom';
-import PrivateRoute from './components/PrivateRoute';
-import AdminDashboard from './pages/AdminDashboard';
-import SupervisorDashboard from './pages/SupervisorDashboard';
+import React from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import PrivateRoute from "./components/PrivateRoute";
+import AdminDashboard from "./pages/AdminDashboard";
+import SupervisorDashboard from "./pages/SupervisorDashboard";
+import { useAuth } from "./context/AuthContext";
+
+// Component to redirect based on role
+function RoleRedirect() {
+  const { role } = useAuth();
+  if (role === "ADMIN") {
+    return <Navigate to="/admin" replace />;
+  } else if (role === "SUPERVISOR") {
+    return <Navigate to="/supervisor" replace />;
+  }
+  return <Navigate to="/login" replace />;
+}
 
 export default function App() {
   return (
@@ -23,12 +35,12 @@ export default function App() {
           </PrivateRoute>
         }
       />
-      {/* Redirect root to appropriate dashboard */}
+      {/* Redirect root to appropriate dashboard based on role */}
       <Route
         path="/"
         element={
           <PrivateRoute>
-            <div>Redirecting...</div>
+            <RoleRedirect />
           </PrivateRoute>
         }
       />

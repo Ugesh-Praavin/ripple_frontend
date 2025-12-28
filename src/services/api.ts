@@ -1,11 +1,11 @@
-import axios, { AxiosInstance, AxiosError } from "axios";
+import axios, { type AxiosInstance, type AxiosError } from "axios";
 import { auth } from "../firebase";
 import type { MLPrediction } from "../types";
 
 const BASE_URL = process.env.REACT_APP_API_BASE_URL || "http://localhost:3000";
 
 // Create axios instance
-const api: AxiosInstance = axios.create({
+export const api: AxiosInstance = axios.create({
   baseURL: BASE_URL,
   headers: {
     "Content-Type": "application/json",
@@ -52,8 +52,21 @@ export type Report = {
   created_at: string;
   worker_name?: string | null;
   estimated_time?: string | null;
+  image_url?: string | null;
+  supervisor_id?: string | null;
+  resolved_image_url?: string | null;
+  requires_manual_review?: boolean;
 };
 
+// Unified user type from /auth/me
+export type AuthUser = {
+  id: string;
+  email: string;
+  role: "ADMIN" | "SUPERVISOR";
+  block_id?: string | null;
+};
+
+// Legacy types (kept for backward compatibility if needed)
 export type AdminUser = {
   id: string;
   email: string;
@@ -81,6 +94,14 @@ export type CompleteReportRequest = {
 export type CompleteReportResponse = {
   status: string;
   requires_manual_review?: boolean;
+};
+
+// Auth API
+export const authAPI = {
+  getMe: async (): Promise<AuthUser> => {
+    const response = await api.get<AuthUser>("/auth/me");
+    return response.data;
+  },
 };
 
 // Admin API
@@ -134,10 +155,24 @@ export const supervisorAPI = {
     reportId: string,
     data: CompleteReportRequest
   ): Promise<CompleteReportResponse> => {
+    console.log("[API] completeReport request:", {
+      reportId,
+      payload: data,
+      payloadType: typeof data,
+      isString: typeof data === "string",
+    });
+
     const response = await api.patch<CompleteReportResponse>(
       `/supervisor/report/${reportId}/complete`,
-      data
+      data, // This will be serialized as JSON by axios
+      {
+        headers: {
+          "Content-Type": "application/json", // Explicitly set JSON header
+        },
+      }
     );
+
+    console.log("[API] completeReport response:", response.data);
     return response.data;
   },
 };

@@ -1,10 +1,9 @@
-import React, { useState } from 'react';
-import { uploadResolvedPhoto } from '../services/supabaseService';
+import React, { useState } from "react";
 
 type ImageUploadModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onSubmit: (imageUrl: string) => Promise<void>;
+  onSubmit: (file: File) => Promise<void>;
   loading?: boolean;
   reportId?: string;
 };
@@ -14,7 +13,7 @@ export default function ImageUploadModal({
   onClose,
   onSubmit,
   loading = false,
-  reportId = 'temp',
+  reportId = "temp",
 }: ImageUploadModalProps) {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -27,13 +26,13 @@ export default function ImageUploadModal({
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
       // Validate file type
-      if (!selectedFile.type.startsWith('image/')) {
-        setError('Please select an image file');
+      if (!selectedFile.type.startsWith("image/")) {
+        setError("Please select an image file");
         return;
       }
       // Validate file size (max 10MB)
       if (selectedFile.size > 10 * 1024 * 1024) {
-        setError('File size must be less than 10MB');
+        setError("File size must be less than 10MB");
         return;
       }
       setFile(selectedFile);
@@ -50,7 +49,12 @@ export default function ImageUploadModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!file) {
-      setError('Please select an image file');
+      setError("Please select or capture an image");
+      return;
+    }
+
+    if (!reportId || reportId === "temp") {
+      setError("Invalid report ID");
       return;
     }
 
@@ -58,14 +62,18 @@ export default function ImageUploadModal({
     setError(null);
 
     try {
-      const imageUrl = await uploadResolvedPhoto(reportId, file);
-      await onSubmit(imageUrl);
-      // Reset form
+      // Pass the file to parent component - it will handle upload and API call
+      await onSubmit(file);
+
+      // Reset form on success
       setFile(null);
       setPreview(null);
     } catch (err) {
-      console.error('[ImageUploadModal] Upload error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to upload image');
+      console.error("[ImageUploadModal] Submit error:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to complete report"
+      );
+      // Don't reset form on error so user can retry
     } finally {
       setUploading(false);
     }
@@ -83,7 +91,10 @@ export default function ImageUploadModal({
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto">
       <div className="flex items-center justify-center min-h-screen px-4 pt-4 pb-20 text-center sm:block sm:p-0">
-        <div className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75" onClick={handleClose} />
+        <div
+          className="fixed inset-0 transition-opacity bg-gray-500 bg-opacity-75"
+          onClick={handleClose}
+        />
 
         <div className="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-lg sm:w-full">
           <form onSubmit={handleSubmit}>
@@ -113,17 +124,21 @@ export default function ImageUploadModal({
                       htmlFor="image-upload"
                       className="block text-sm font-medium text-gray-700 mb-2"
                     >
-                      Upload Completion Photo
+                      Capture or Upload Completion Photo
                     </label>
                     <input
                       type="file"
                       id="image-upload"
                       accept="image/*"
+                      capture="environment"
                       onChange={handleFileChange}
                       className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
                       disabled={loading || uploading}
                       required
                     />
+                    <p className="mt-2 text-xs text-gray-500">
+                      📷 On mobile: Opens camera directly | On desktop: File picker
+                    </p>
                     {preview && (
                       <div className="mt-4">
                         <img
@@ -149,7 +164,34 @@ export default function ImageUploadModal({
                 disabled={loading || uploading || !file}
                 className="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {uploading ? 'Uploading...' : loading ? 'Submitting...' : 'Complete Report'}
+                {uploading ? (
+                  <span className="flex items-center">
+                    <svg
+                      className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      ></circle>
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                      ></path>
+                    </svg>
+                    Uploading...
+                  </span>
+                ) : loading ? (
+                  "Submitting..."
+                ) : (
+                  "Complete Report"
+                )}
               </button>
               <button
                 type="button"
