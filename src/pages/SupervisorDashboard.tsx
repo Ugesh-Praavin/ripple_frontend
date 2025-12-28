@@ -41,22 +41,24 @@ export default function SupervisorDashboard() {
   };
 
   // Inside handleAssignWorker
+  // Corrected handleAssignWorker
   const handleAssignWorker = async (reportId: string, workerName: string) => {
     try {
       setActionLoading(reportId);
-      // 1. Call API
+
+      // 1. Call backend API
       const updatedReport = await supervisorAPI.assignWorker(reportId, {
         worker_name: workerName,
       });
 
-      // 2. Update Local State
+      // 2. Update local state using BACKEND RESPONSE ONLY
       setReports((prev) =>
         prev.map((r) =>
           r.id === reportId
             ? {
                 ...r,
-                worker_name: updatedReport.worker_name || workerName,
-                status: "In Progress", // <--- Manually update status locally to match backend
+                worker_name: updatedReport.worker_name,
+                status: updatedReport.status, // ✅ TRUST BACKEND
               }
             : r
         )
@@ -64,7 +66,11 @@ export default function SupervisorDashboard() {
 
       showToast(`Worker ${workerName} assigned successfully`, "success");
     } catch (error) {
-      // ... existing error handling
+      console.error("[SupervisorDashboard] Failed to assign worker:", error);
+      showToast("Failed to assign worker", "error");
+
+      // Ensure UI is always in sync with DB
+      await fetchReports();
     } finally {
       setActionLoading(null);
     }
